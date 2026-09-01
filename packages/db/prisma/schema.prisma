@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+
+enum UserStatus { ACTIVE SUSPENDED PENDING }
+enum RoleName { PROFESSIONAL SUPER_ADMIN ADMIN OPERATIONS }
+enum LeadStatus { DRAFT ACTIVE SOLD EXPIRED ARCHIVED SUSPENDED }
+enum LeadType { SHARED EXCLUSIVE }
+enum PurchaseStatus { PENDING COMPLETED REFUNDED FAILED }
+enum MembershipStatus { PENDING ACTIVE EXPIRED CANCELLED }
+enum PaymentStatus { PENDING APPROVED REJECTED }
+enum WalletDirection { CREDIT DEBIT }
+enum WalletTxnType { MANUAL_DEPOSIT LEAD_PURCHASE MEMBERSHIP_PURCHASE BOOSTER_PURCHASE INVESTMENT REFUND ADMIN_ADJUSTMENT }
+enum InvestmentStatus { PENDING ACTIVE COMPLETED CANCELLED }
+enum OrderStatus { PENDING PAID CANCELLED REFUNDED }
+enum CouponType { PERCENTAGE FIXED }
+enum NotificationType { SYSTEM LEAD PURCHASE WALLET MEMBERSHIP INVESTMENT BOOSTER ADMIN }
+enum FieldType { TEXT NUMBER BOOLEAN DATE SELECT MULTI_SELECT CURRENCY }
+enum ProductStatus { ACTIVE INACTIVE }
+
+model User {
+ id String @id @default(uuid())
+ email String @unique
+ mobile String @unique
+ passwordHash String
+ name String
+ status UserStatus @default(PENDING)
+ emailVerifiedAt DateTime?
+ mobileVerifiedAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ profile ProfessionalProfile?
+ roles UserRole[]
+ sessions Session[]
+ wallet Wallet?
+ memberships Membership[]
+ purchases LeadPurchase[]
+ orders Order[]
+ investments Investment[]
+ notifications Notification[]
+ couponUses CouponRedemption[]
+ auditLogs AuditLog[] @relation("AuditActor")
+ passwordResets PasswordResetToken[]
+}
+model ProfessionalProfile {
+ id String @id @default(uuid())
+ userId String @unique
+ companyName String
+ industryId String?
+ businessType String?
+ address String?
+ city String
+ state String
+ country String @default("India")
+ gstin String?
+ website String?
+ bio String?
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ industry Industry? @relation(fields:[industryId],references:[id])
+}
+model Role { id String @id @default(uuid()); name RoleName @unique; description String?; users UserRole[]; permissions RolePermission[] }
+model Permission { id String @id @default(uuid()); key String @unique; description String?; roles RolePermission[] }
+model UserRole { userId String; roleId String; user User @relation(fields:[userId],references:[id],onDelete:Cascade); role Role @relation(fields:[roleId],references:[id],onDelete:Cascade); @@id([userId,roleId]) }
+model RolePermission { roleId String; permissionId String; role Role @relation(fields:[roleId],references:[id],onDelete:Cascade); permission Permission @relation(fields:[permissionId],references:[id],onDelete:Cascade); @@id([roleId,permissionId]) }
+model Session { id String @id @default(uuid()); userId String; tokenHash String @unique; expiresAt DateTime; createdAt DateTime @default(now()); userAgent String?; ipAddress String?; user User @relation(fields:[userId],references:[id],onDelete:Cascade); @@index([userId,expiresAt]) }
+model PasswordResetToken { id String @id @default(uuid()); userId String; tokenHash String @unique; expiresAt DateTime; usedAt DateTime?; user User @relation(fields:[userId],references:[id],onDelete:Cascade); @@index([userId,expiresAt]) }
+model Industry { id String @id @default(uuid()); name String @unique; slug String @unique; active Boolean @default(true); categories Category[]; fields LeadField[]; leads Lead[]; profiles ProfessionalProfile[]; investmentRules InvestmentRule[]; createdAt DateTime @default(now()) }
+model Category { id String @id @default(uuid()); industryId String; parentId String?; name String; slug String; active Boolean @default(true); industry Industry @relation(fields:[industryId],references:[id]); parent Category? @relation("CategoryTree",fields:[parentId],references:[id]); children Category[] @relation("CategoryTree"); leads Lead[]; fields LeadField[]; @@unique([industryId,slug]); @@index([industryId,active]) }
+model LeadField { id String @id @default(uuid()); industryId String; categoryId String?; key String; label String; type FieldType; required Boolean @default(false); searchable Boolean @default(false); filterable Boolean @default(false); optionsJson Json?; sortOrder Int @default(0); industry Industry @relation(fields:[industryId],references:[id],onDelete:Cascade); category Category? @relation(fields:[categoryId],references:[id],onDelete:Cascade); values LeadFieldValue[]; @@unique([industryId,categoryId,key]) }
+model Lead { id String @id @default(uuid()); industryId String; categoryId String?; title String; service String?; city String; state String; locationText String?; requirementSummary String; leadType LeadType @default(SHARED); status LeadStatus @default(DRAFT); normalPriceMinor BigInt; proPriceMinor BigInt; maxBuyers Int @default(1); exclusiveUntil DateTime?; exclusiveMembership String?; convertToSharedAfter Boolean @default(false); contactName String?; contactEmail String?; contactMobile String?; qualityTier String?; createdAt DateTime @default(now()); updatedAt DateTime @updatedAt; industry Industry @relation(fields:[industryId],references:[id]); category Category? @relation(fields:[categoryId],references:[id]); fields LeadFieldValue[]; purchases LeadPurchase[]; pricing LeadPriceOverride[]; @@index([industryId,status,createdAt]); @@index([categoryId,status,createdAt]); @@index([city,state,status]); @@index([leadType,status,exclusiveUntil]) }
+model LeadFieldValue { leadId String; fieldId String; value String; lead Lead @relation(fields:[leadId],references:[id],onDelete:Cascade); field LeadField @relation(fields:[fieldId],references:[id],onDelete:Cascade); @@id([leadId,fieldId]); @@index([fieldId,value]) }
+model LeadPriceOverride { id String @id @default(uuid()); leadId String?; industryId String?; categoryId String?; leadType LeadType?; qualityTier String?; normalMinor BigInt; proMinor BigInt; active Boolean @default(true); createdAt DateTime @default(now()); lead Lead? @relation(fields:[leadId],references:[id],onDelete:Cascade); @@index([industryId,categoryId,leadType,qualityTier,active]) }
+model LeadPurchase { id String @id @default(uuid()); orderId String @unique; userId String; leadId String; priceMinor BigInt; pricingType String; membershipSnapshot String; shareNumber Int; status PurchaseStatus @default(COMPLETED); purchasedAt DateTime @default(now()); refundedAt DateTime?; user User @relation(fields:[userId],references:[id]); lead Lead @relation(fields:[leadId],references:[id]); order Order @relation(fields:[orderId],references:[id]); @@unique([userId,leadId]); @@index([leadId,purchasedAt]); @@index([userId,purchasedAt]) }
+model MembershipPlan { id String @id @default(uuid()); code String @unique; name String; priceMinor BigInt; durationDays Int; benefitsJson Json?; active Boolean @default(true); memberships Membership[] }
+model Membership { id String @id @default(uuid()); userId String; planId String; status MembershipStatus @default(PENDING); startsAt DateTime?; endsAt DateTime?; priceMinor BigInt; createdAt DateTime @default(now()); user User @relation(fields:[userId],references:[id]); plan MembershipPlan @relation(fields:[planId],references:[id]); @@index([userId,status,endsAt]) }
+model InvestmentRule { id String @id @default(uuid()); industryId String; categoryId String?; minimumMinor BigInt; maximumMinor BigInt; capacityMinor BigInt?; investedMinor BigInt @default(0); eligible Boolean @default(true); available Boolean @default(true); returnConfigJson Json?; industry Industry @relation(fields:[industryId],references:[id],onDelete:Cascade); @@index([industryId,categoryId,eligible,available]) }
+model Investment { id String @id @default(uuid()); userId String; ruleId String; amountMinor BigInt; status InvestmentStatus @default(PENDING); startsAt DateTime?; endsAt DateTime?; remainingMinor BigInt; returnedMinor BigInt @default(0); createdAt DateTime @default(now()); user User @relation(fields:[userId],references:[id]); rule InvestmentRule @relation(fields:[ruleId],references:[id]); transactions InvestmentTransaction[]; @@index([userId,status]); @@index([ruleId,status]) }
+model InvestmentTransaction { id String @id @default(uuid()); investmentId String; amountMinor BigInt; type String; reference String?; metadataJson Json?; createdAt DateTime @default(now()); investment Investment @relation(fields:[investmentId],references:[id],onDelete:Cascade) }
+model Wallet { id String @id @default(uuid()); userId String @unique; currency String @default("INR"); balanceMinor BigInt @default(0); version Int @default(0); user User @relation(fields:[userId],references:[id],onDelete:Cascade); transactions WalletTransaction[] }
+model WalletTransaction { id String @id @default(uuid()); walletId String; amountMinor BigInt; direction WalletDirection; type WalletTxnType; status String @default("POSTED"); reference String?; idempotencyKey String? @unique; metadataJson Json?; createdAt DateTime @default(now()); wallet Wallet @relation(fields:[walletId],references:[id],onDelete:Cascade); @@index([walletId,createdAt]) }
+model PaymentRequest { id String @id @default(uuid()); userId String; amountMinor BigInt; reference String?; proofUrl String?; notes String?; status PaymentStatus @default(PENDING); reviewedById String?; reviewedAt DateTime?; createdAt DateTime @default(now()); user User @relation(fields:[userId],references:[id]); @@index([status,createdAt]) }
+model Order { id String @id @default(uuid()); userId String; status OrderStatus @default(PENDING); subtotalMinor BigInt; discountMinor BigInt @default(0); totalMinor BigInt; currency String @default("INR"); idempotencyKey String? @unique; createdAt DateTime @default(now()); user User @relation(fields:[userId],references:[id]); leadPurchase LeadPurchase?; boosterOrder BoosterOrder?; @@index([userId,createdAt]) }
+model BoosterProduct { id String @id @default(uuid()); code String @unique; name String; description String; priceMinor BigInt; durationDays Int?; featuresJson Json?; status ProductStatus @default(ACTIVE); orders BoosterOrder[] }
+model BoosterOrder { id String @id @default(uuid()); orderId String @unique; productId String; startsAt DateTime?; endsAt DateTime?; order Order @relation(fields:[orderId],references:[id]); product BoosterProduct @relation(fields:[productId],references:[id]) }
+model Coupon { id String @id @default(uuid()); code String @unique; type CouponType; value Int; minPurchaseMinor BigInt?; maxDiscountMinor BigInt?; startsAt DateTime; endsAt DateTime; usageLimit Int?; perUserLimit Int @default(1); applicableJson Json?; active Boolean @default(true); redemptions CouponRedemption[] }
+model CouponRedemption { id String @id @default(uuid()); couponId String; userId String; orderId String; discountMinor BigInt; createdAt DateTime @default(now()); coupon Coupon @relation(fields:[couponId],references:[id]); user User @relation(fields:[userId],references:[id]); @@unique([couponId,userId,orderId]); @@index([couponId,userId]) }
+model Notification { id String @id @default(uuid()); userId String; type NotificationType; title String; body String; readAt DateTime?; metadataJson Json?; createdAt DateTime @default(now()); user User @relation(fields:[userId],references:[id],onDelete:Cascade); @@index([userId,readAt,createdAt]) }
+model AuditLog { id String @id @default(uuid()); actorId String?; action String; entity String; entityId String?; beforeJson Json?; afterJson Json?; metadataJson Json?; createdAt DateTime @default(now()); actor User? @relation("AuditActor",fields:[actorId],references:[id]); @@index([entity,entityId,createdAt]); @@index([actorId,createdAt]) }
+model SystemSetting { key String @id; valueJson Json; updatedAt DateTime @updatedAt }
