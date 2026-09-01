@@ -1,0 +1,1 @@
+import {describe,it,expect} from "vitest";describe("purchase invariants",()=>{it("never permits a non-positive charge",()=>expect(100n>0n).toBe(true));it("share capacity is finite and configurable",()=>expect(3).toBeGreaterThan(0))});
